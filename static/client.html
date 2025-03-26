@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebRTC Audio Echo Test</title>
+  <style>
+    button { margin: 10px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <button id="connectBtn">接続</button>
+  <button id="disconnectBtn" disabled>切断</button>
+  <audio id="remoteAudio" autoplay controls></audio>
+
+  <script>
+    let pc = null;
+    let localStream = null;
+
+    document.getElementById('connectBtn').onclick = async () => {
+      console.log('✅ 接続開始');
+      pc = new RTCPeerConnection();
+      const remoteAudio = document.getElementById('remoteAudio');
+
+      pc.ontrack = (event) => {
+        console.log('✅ ontrack発火');
+        console.log('▶ event.track:', event.track);
+        console.log('▶ event.streams:', event.streams);
+
+        if (event.streams.length > 0) {
+          console.log('▶ 受信したMediaStream:', event.streams[0]);
+          remoteAudio.srcObject = event.streams[0];
+        } else {
+          console.warn('⚠ streamsが空！event.trackからMediaStream生成');
+          const inboundStream = new MediaStream([event.track]);
+          remoteAudio.srcObject = inboundStream;
+        }
+
+        remoteAudio.play().catch(err => console.error('再生エラー:', err));
+      };
+
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStream.getTracks().forEach((track) => {
+        console.log('✅ マイクトラック追加:', track);
+        pc.addTrack(track, localStream);
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log('✅ Offer作成・送信準備');
+
+      const res = await fetch('/offer', {
+        method: 'POST',
+        body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const answer = await res.json();
+      console.log('✅ Answer受信:', answer);
+      await pc.setRemoteDescription(answer);
+
+      document.getElementById('connectBtn').disabled = true;
+      document.getElementById('disconnectBtn').disabled = false;
+    };
+
+    document.getElementById('disconnectBtn').onclick = () => {
+      console.log('✅ 切断開始');
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      document.getElementById('connectBtn').disabled = false;
+      document.getElementById('disconnectBtn').disabled = true;
+    };
+  </script>
+</body>
+</html>
